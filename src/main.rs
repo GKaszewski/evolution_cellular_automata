@@ -2,13 +2,8 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Write;
 
-use bevy::input::keyboard::Key;
-use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
-use bevy::render::camera;
-use bevy::render::view::window;
 use bevy::utils::hashbrown::HashMap;
-use bevy::window::PrimaryWindow;
 use rand::prelude::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -167,10 +162,10 @@ fn spawn_organisms(mut commands: Commands, world: Res<World>) {
 
         commands.spawn((
             Organism {
-                energy: 10.0,
+                energy: 3.0,
                 speed: 1.0,
                 size: rng.gen_range(0.5..1.5),
-                reproduction_threshold: 20.0,
+                reproduction_threshold: 5.0,
                 biome_tolerance,
             },
             Position { x, y },
@@ -180,7 +175,7 @@ fn spawn_organisms(mut commands: Commands, world: Res<World>) {
 
 fn spawn_predators(mut commands: Commands, world: Res<World>) {
     let mut rng = rand::thread_rng();
-    let predator_count = 40;
+    let predator_count = 1;
 
     for _ in 0..predator_count {
         let x = rng.gen_range(0..world.width);
@@ -261,6 +256,31 @@ fn render_new_organisms(
         let color = Color::linear_rgb(0.0, 127.0, 0.0);
 
         let shape = meshes.add(Circle::new((organism.size * 16.0) / 2.0));
+
+        commands.entity(entity).insert((
+            Mesh2d(shape),
+            MeshMaterial2d(materials.add(color)),
+            Transform::from_xyz(
+                position.x as f32 * tile_size.x,
+                position.y as f32 * tile_size.y,
+                1.0,
+            ),
+        ));
+    }
+}
+
+fn render_new_predators(
+    mut commands: Commands,
+    query: Query<(Entity, &Position, &Predator), Added<Predator>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    let tile_size = Vec2::new(32.0, 32.0);
+
+    for (entity, position, predator) in query.iter() {
+        let color = Color::linear_rgb(127.0, 0.0, 0.0);
+
+        let shape = meshes.add(Rectangle::new(predator.size * 16.0, predator.size * 16.0));
 
         commands.entity(entity).insert((
             Mesh2d(shape),
@@ -469,8 +489,6 @@ fn reproduction(mut commands: Commands, mut query: Query<(&mut Organism, &Positi
             let reproduction_threshold = organism.reproduction_threshold
                 * (1.0 + rng.gen_range(-mutation_factor..mutation_factor));
 
-            let reproduction_threshold = reproduction_threshold.clamp(5.0, f32::MAX);
-
             let child = Organism {
                 energy: organism.energy / 2.0,
                 speed: organism.speed * (1.1 + rng.gen_range(-mutation_factor..mutation_factor)),
@@ -515,7 +533,44 @@ fn hunting(
     }
 }
 
-fn overcrowding(mut query: Query<(&mut Organism, &Position)>) {
+fn predator_reproduction(
+    mut commands: Commands,
+    mut query: Query<(&mut Predator, &Position)>,
+    world: Res<World>,
+) {
+    let mut rng = rand::thread_rng();
+
+    for (mut predator, position) in query.iter_mut() {
+        if predator.energy > 120.0 {
+            let mutation_factor = 0.05;
+
+            let child = Predator {
+                energy: predator.energy / 2.0,
+                speed: predator.speed * (1.1 + rng.gen_range(-mutation_factor..mutation_factor)),
+                size: predator.size * (1.0 + rng.gen_range(-mutation_factor..mutation_factor)),
+                hunting_efficiency: predator.hunting_efficiency
+                    * (1.0 + rng.gen_range(-mutation_factor..mutation_factor)),
+            };
+
+            let x_offset = rng.gen_range(-1..=1);
+            let y_offset = rng.gen_range(-1..=1);
+
+            let child_position = Position {
+                x: (position.x as isize + x_offset).clamp(0, world.width as isize - 1) as usize,
+                y: (position.y as isize + y_offset).clamp(0, world.height as isize - 1) as usize,
+            };
+
+            commands.spawn((child, child_position));
+
+            predator.energy /= 2.0;
+        }
+    }
+}
+
+fn overcrowding(mut query: Query<(&mut Organism, &Position)>, mut predator_query: Query<(&mut Predator, &Position)>) {
+    let overcrowding_threshold_for_organisms = 250;
+    let overcrowding_threshold_for_predators = 10;
+    
     let mut organisms_by_tile: HashMap<(usize, usize), Vec<Mut<Organism>>> = HashMap::new();
 
     for (organism, position) in query.iter_mut() {
@@ -526,18 +581,44 @@ fn overcrowding(mut query: Query<(&mut Organism, &Position)>) {
     }
 
     for (_, organisms) in organisms_by_tile.iter_mut() {
-        if organisms.len() > 250 {
+        if organisms.len() > overcrowding_threshold_for_organisms {
             organisms.sort_by(|a, b| {
                 a.energy
                     .partial_cmp(&b.energy)
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
 
-            let num_to_remove = organisms.len() - 250;
+            let num_to_remove = organisms.len() - overcrowding_threshold_for_organisms;
             for organism in organisms.iter_mut().take(num_to_remove) {
                 organism.energy = -1.0;
 
                 // println!("Organism died due to overcrowding");
+            }
+        }
+    }
+
+    let mut predators_by_tile: HashMap<(usize, usize), Vec<Mut<Predator>>> = HashMap::new();
+
+    for (predator, position) in predator_query.iter_mut() {
+        predators_by_tile
+            .entry((position.x, position.y))
+            .or_default()
+            .push(predator);
+    }
+
+    for (_, predators) in predators_by_tile.iter_mut() {
+        if predators.len() > overcrowding_threshold_for_predators {
+            predators.sort_by(|a, b| {
+                a.energy
+                    .partial_cmp(&b.energy)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            let num_to_remove = predators.len() - overcrowding_threshold_for_predators;
+            for predator in predators.iter_mut().take(num_to_remove) {
+                predator.energy = -1.0;
+
+                // println!("Predator died due to overcrowding");
             }
         }
     }
@@ -566,13 +647,24 @@ fn initialize_log_file() {
         "generation,total_organisms,total_energy,avg_speed,avg_size,avg_reproduction_threshold,total_speed,total_size,total_reproduction_threshold,avg_energy"
     )
     .expect("Failed to write to log file");
+
+    let mut predators_file = File::create("predator_data.csv").expect("Failed to create log file");
+    writeln!(
+        predators_file,
+        "generation,total_predators,total_energy,avg_speed,avg_size,avg_reproduction_threshold,total_speed,total_size,total_reproduction_threshold,avg_energy"
+    ).expect("Failed to write to log file");
 }
 
-fn log_organism_data(generation: Res<Generation>, query: Query<&Organism>) {
-    let mut file = OpenOptions::new()
+fn log_organism_data(generation: Res<Generation>, query: Query<&Organism>, predator_query: Query<&Predator>) {
+    let mut organisms_file = OpenOptions::new()
         .create(true)
         .append(true)
         .open("organism_data.csv")
+        .expect("Failed to open log file");
+    let mut predators_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("predator_data.csv")
         .expect("Failed to open log file");
 
     let mut total_organisms = 0;
@@ -595,7 +687,7 @@ fn log_organism_data(generation: Res<Generation>, query: Query<&Organism>) {
         let avg_reproduction_threshold = total_reproduction_threshold / total_organisms as f32;
 
         writeln!(
-            file,
+            organisms_file,
             "{},{},{},{},{},{},{},{},{},{}",
             generation.0,
             total_organisms,
@@ -607,6 +699,39 @@ fn log_organism_data(generation: Res<Generation>, query: Query<&Organism>) {
             total_size,
             total_reproduction_threshold,
             total_energy / total_organisms as f32
+        )
+        .expect("Failed to write to log file");
+    }
+
+    let mut total_predators = 0;
+    let mut total_predator_energy = 0.0;
+    let mut total_predator_speed = 0.0;
+    let mut total_predator_size = 0.0;
+
+    for predator in predator_query.iter() {
+        total_predators += 1;
+        total_predator_energy += predator.energy;
+        total_predator_speed += predator.speed;
+        total_predator_size += predator.size;
+    }
+
+    if total_predators > 0 {
+        let avg_predator_speed = total_predator_speed / total_predators as f32;
+        let avg_predator_size = total_predator_size / total_predators as f32;
+
+        writeln!(
+            predators_file,
+            "{},{},{},{},{},{},{},{},{},{}",
+            generation.0,
+            total_predators,
+            total_predator_energy,
+            avg_predator_speed,
+            avg_predator_size,
+            0.0,
+            total_predator_speed,
+            total_predator_size,
+            0.0,
+            total_predator_energy / total_predators as f32
         )
         .expect("Failed to write to log file");
     }
@@ -639,7 +764,7 @@ fn handle_camera_movement(
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .insert_resource(World::new(32, 32))
+        .insert_resource(World::new(128, 128))
         .insert_resource(Generation(0))
         .add_systems(
             Startup,
@@ -668,6 +793,7 @@ fn main() {
                 overcrowding,
                 biome_adaptation,
                 reproduction,
+                predator_reproduction,
                 increment_generation,
                 log_organism_data,
                 handle_camera_movement,
