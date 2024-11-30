@@ -72,7 +72,6 @@ impl Default for World {
 #[derive(Component)]
 pub struct Organism {
     pub energy: f32,
-    pub reproduction_rate: f32,
     pub speed: f32,
     pub size: f32,
     pub reproduction_threshold: f32, // energy threshold for reproduction
@@ -144,7 +143,6 @@ fn spawn_organisms(mut commands: Commands, world: Res<World>) {
         commands.spawn((
             Organism {
                 energy: 10.0,
-                reproduction_rate: 0.2,
                 speed: 1.0,
                 size: rng.gen_range(0.5..1.5),
                 reproduction_threshold: 20.0,
@@ -412,8 +410,6 @@ fn reproduction(mut commands: Commands, mut query: Query<(&mut Organism, &Positi
 
             let child = Organism {
                 energy: organism.energy / 2.0,
-                reproduction_rate: organism.reproduction_rate
-                    * (1.0 + rng.gen_range(-mutation_factor..mutation_factor)),
                 speed: organism.speed * (1.0 + rng.gen_range(-mutation_factor..mutation_factor)),
                 size: organism.size * (1.0 + rng.gen_range(-mutation_factor..mutation_factor)),
                 reproduction_threshold: organism.reproduction_threshold
@@ -477,7 +473,7 @@ fn initialize_log_file() {
     let mut file = File::create("organism_data.csv").expect("Failed to create log file");
     writeln!(
         file,
-        "generation,total_organisms,total_energy,avg_speed,avg_size,avg_reproduction_rate,total_speed,total_size,total_reproduction_rate,avg_energy"
+        "generation,total_organisms,total_energy,avg_speed,avg_size,avg_reproduction_threshold ,total_speed,total_size,total_reproduction_threshold,avg_energy"
     )
     .expect("Failed to write to log file");
 }
@@ -494,14 +490,14 @@ fn log_organism_data(
 
     let mut total_organisms = 0;
     let mut total_energy = 0.0;
-    let mut total_reproduction_rate = 0.0;
+    let mut total_reproduction_threshold = 0.0;
     let mut total_speed = 0.0;
     let mut total_size = 0.0;
 
     for organism in query.iter() {
         total_organisms += 1;
         total_energy += organism.energy;
-        total_reproduction_rate += organism.reproduction_rate;
+        total_reproduction_threshold += organism.reproduction_threshold;
         total_speed += organism.speed;
         total_size += organism.size;
     }
@@ -509,7 +505,7 @@ fn log_organism_data(
     if total_organisms > 0 {
         let avg_speed = total_speed / total_organisms as f32;
         let avg_size = total_size / total_organisms as f32;
-        let avg_reproduction_rate = total_reproduction_rate / total_organisms as f32;
+        let avg_reproduction_threshold = total_reproduction_threshold / total_organisms as f32;
 
         writeln!(
             file,
@@ -519,10 +515,10 @@ fn log_organism_data(
             total_energy,
             avg_speed,
             avg_size,
-            avg_reproduction_rate,
+            avg_reproduction_threshold,
             total_speed,
             total_size,
-            total_reproduction_rate,
+            total_reproduction_threshold,
             total_energy / total_organisms as f32
         ).expect("Failed to write to log file");
     }
