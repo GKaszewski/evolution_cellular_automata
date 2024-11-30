@@ -1,9 +1,14 @@
+use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::fs::File;
 
+use bevy::input::keyboard::Key;
+use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
+use bevy::render::camera;
+use bevy::render::view::window;
 use bevy::utils::hashbrown::HashMap;
+use bevy::window::PrimaryWindow;
 use rand::prelude::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -43,7 +48,7 @@ impl World {
                 let biome = match (x + y) % 4 {
                     0 => Biome::Forest,
                     1 => Biome::Desert,
-                    2 => Biome::Water,
+                    // 2 => Biome::Water,
                     _ => Biome::Grassland,
                 };
                 grid[y].push(Tile {
@@ -75,7 +80,7 @@ pub struct Organism {
     pub speed: f32,
     pub size: f32,
     pub reproduction_threshold: f32, // energy threshold for reproduction
-    pub biome_tolerance: HashMap<Biome, f32>
+    pub biome_tolerance: HashMap<Biome, f32>,
 }
 
 #[derive(Component)]
@@ -100,6 +105,26 @@ pub struct TileComponent {
 #[derive(Default, Resource)]
 pub struct Generation(pub usize);
 
+fn island_world() -> World {
+    let mut world = World::new(10, 10);
+
+    for y in 0..world.height {
+        for x in 0..world.width {
+            if x == 0 || x == world.width - 1 || y == 0 || y == world.height - 1 {
+                world.grid[y][x].biome = Biome::Water;
+            } else {
+                if x % 2 == 0 && y % 2 == 0 {
+                    world.grid[y][x].biome = Biome::Grassland;
+                } else {
+                    world.grid[y][x].biome = Biome::Forest;
+                }
+            }
+        }
+    }
+
+    world
+}
+
 fn spawn_world(mut commands: Commands, world: Res<World>) {
     let tile_size = Vec2::new(32.0, 32.0);
     for (y, row) in world.grid.iter().enumerate() {
@@ -123,12 +148,12 @@ fn spawn_world(mut commands: Commands, world: Res<World>) {
         }
     }
 
-    commands.spawn(Camera2d::default());
+    commands.spawn((Camera2d::default(), Transform::from_xyz(160.0, 160.0, 10.0)));
 }
 
 fn spawn_organisms(mut commands: Commands, world: Res<World>) {
     let mut rng = rand::thread_rng();
-    let organism_count = 150;
+    let organism_count = 100;
 
     for _ in 0..organism_count {
         let x = rng.gen_range(0..world.width);
@@ -146,19 +171,16 @@ fn spawn_organisms(mut commands: Commands, world: Res<World>) {
                 speed: 1.0,
                 size: rng.gen_range(0.5..1.5),
                 reproduction_threshold: 20.0,
-                biome_tolerance
+                biome_tolerance,
             },
             Position { x, y },
         ));
     }
 }
 
-fn spawn_predators(
-    mut commands: Commands,
-    world: Res<World>,
-) {
+fn spawn_predators(mut commands: Commands, world: Res<World>) {
     let mut rng = rand::thread_rng();
-    let predator_count = 0;
+    let predator_count = 40;
 
     for _ in 0..predator_count {
         let x = rng.gen_range(0..world.width);
@@ -168,23 +190,31 @@ fn spawn_predators(
             Predator {
                 energy: 15.0,
                 speed: 1.5,
-                size: 2.0,
-                hunting_efficiency: 1.2,
+                size: 1.0,
+                hunting_efficiency: 1.4,
             },
             Position { x, y },
         ));
     }
 }
 
-fn render_organisms(mut commands: Commands, query: Query<(Entity, &Position), (Added<Position>, Without<Predator>)>) {
+fn render_organisms(
+    mut commands: Commands,
+    query: Query<(Entity, &Position), (Added<Position>, Without<Predator>)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
     let tile_size = Vec2::new(32.0, 32.0);
     let organism_size = Vec2::new(16.0, 16.0);
 
-    let color = Color::linear_rgb(255.0, 0.0, 0.0);
+    let shape = meshes.add(Circle::new((organism_size.x) / 2.0));
+
+    let color = Color::linear_rgb(0.0, 155.0, 12.0);
 
     for (entity, position) in query.iter() {
         commands.entity(entity).insert((
-            Sprite::from_color(color, organism_size),
+            Mesh2d(shape.clone()),
+            MeshMaterial2d(materials.add(color)),
             Transform::from_xyz(
                 position.x as f32 * tile_size.x,
                 position.y as f32 * tile_size.y,
@@ -197,15 +227,19 @@ fn render_organisms(mut commands: Commands, query: Query<(Entity, &Position), (A
 fn render_predators(
     mut commands: Commands,
     query: Query<(Entity, &Position), (Added<Position>, With<Predator>)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     let tile_size = Vec2::new(32.0, 32.0);
     let organism_size = Vec2::new(16.0, 16.0);
 
-    let color = Color::linear_rgb(30.0, 20.0, 128.0);
+    let color = Color::srgb(255.0, 0.0, 0.0);
+    let shape = meshes.add(Rectangle::new(organism_size.x, organism_size.y));
 
     for (entity, position) in query.iter() {
         commands.entity(entity).insert((
-            Sprite::from_color(color, organism_size),
+            Mesh2d(shape.clone()),
+            MeshMaterial2d(materials.add(color)),
             Transform::from_xyz(
                 position.x as f32 * tile_size.x,
                 position.y as f32 * tile_size.y,
@@ -218,19 +252,19 @@ fn render_predators(
 fn render_new_organisms(
     mut commands: Commands,
     query: Query<(Entity, &Position, &Organism), Added<Organism>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
 ) {
     let tile_size = Vec2::new(32.0, 32.0);
-    let organism_size = Vec2::new(16.0, 16.0);
 
     for (entity, position, organism) in query.iter() {
-        let color = Color::linear_rgb(
-            0.5 + organism.speed * 0.5,
-            0.5 + organism.size * 0.5,
-            0.5 + organism.energy * 0.5,
-        );
+        let color = Color::linear_rgb(0.0, 127.0, 0.0);
+
+        let shape = meshes.add(Circle::new((organism.size * 16.0) / 2.0));
 
         commands.entity(entity).insert((
-            Sprite::from_color(color, organism_size),
+            Mesh2d(shape),
+            MeshMaterial2d(materials.add(color)),
             Transform::from_xyz(
                 position.x as f32 * tile_size.x,
                 position.y as f32 * tile_size.y,
@@ -248,8 +282,8 @@ fn organism_movement(mut query: Query<(&mut Position, &mut Organism)>, world: Re
             continue;
         }
 
-        let dx = rng.gen_range(-1..=1);
-        let dy = rng.gen_range(-1..=1);
+        let dx = rng.gen_range(-1..=1) as isize * organism.speed as isize;
+        let dy = rng.gen_range(-1..=1) as isize * organism.speed as isize;
 
         let new_x = (position.x as isize + dx).clamp(0, (world.width - 1) as isize) as usize;
         let new_y = (position.y as isize + dy).clamp(0, (world.height - 1) as isize) as usize;
@@ -257,7 +291,7 @@ fn organism_movement(mut query: Query<(&mut Position, &mut Organism)>, world: Re
         position.x = new_x;
         position.y = new_y;
 
-        organism.energy -= 0.1;
+        organism.energy -= 0.1 * organism.speed * organism.size;
     }
 }
 
@@ -275,13 +309,14 @@ fn predator_movement(
 
         let mut closest_prey: Option<&Position> = None;
         let mut min_distance = f32::MAX;
+        let predator_range_attack = 1.0;
 
         for (prey_position, _) in prey_query.iter() {
             let dx = predator_position.x as f32 - prey_position.x as f32;
             let dy = predator_position.y as f32 - prey_position.y as f32;
             let distance = dx * dx + dy * dy;
 
-            if distance < min_distance {
+            if distance < min_distance && distance <= predator_range_attack {
                 min_distance = distance;
                 closest_prey = Some(prey_position);
             }
@@ -299,8 +334,10 @@ fn predator_movement(
             let dx = rng.gen_range(-1..=1);
             let dy = rng.gen_range(-1..=1);
 
-            predator_position.x = (predator_position.x as isize + dx).clamp(0, (world.width - 1) as isize) as usize;
-            predator_position.y = (predator_position.y as isize + dy).clamp(0, (world.height - 1) as isize) as usize;
+            predator_position.x =
+                (predator_position.x as isize + dx).clamp(0, (world.width - 1) as isize) as usize;
+            predator_position.y =
+                (predator_position.y as isize + dy).clamp(0, (world.height - 1) as isize) as usize;
         }
 
         predator.energy -= 0.1;
@@ -310,7 +347,7 @@ fn predator_movement(
 fn despawn_dead_organisms(mut commands: Commands, query: Query<(Entity, &Organism)>) {
     for (entity, organism) in query.iter() {
         if organism.energy <= 0.0 {
-            commands.entity(entity).despawn();
+            commands.entity(entity).despawn_recursive();
         }
     }
 }
@@ -318,28 +355,45 @@ fn despawn_dead_organisms(mut commands: Commands, query: Query<(Entity, &Organis
 fn despawn_dead_predators(mut commands: Commands, query: Query<(Entity, &Predator)>) {
     for (entity, predator) in query.iter() {
         if predator.energy <= 0.0 {
-            commands.entity(entity).despawn();
+            println!("Predator died");
+            commands.entity(entity).despawn_recursive();
         }
     }
 }
 
-fn organism_sync(mut query: Query<(&Position, &mut Transform)>) {
-    for (position, mut transform) in query.iter_mut() {
+fn organism_sync(mut query: Query<(&Position, &mut Transform, &Organism)>) {
+    for (position, mut transform, organism) in query.iter_mut() {
         transform.translation.x = position.x as f32 * 32.0;
         transform.translation.y = position.y as f32 * 32.0;
+        transform.scale = Vec3::new(organism.size, organism.size, 1.0);
+    }
+}
+
+fn predator_sync(mut query: Query<(&Position, &mut Transform, &Predator)>) {
+    for (position, mut transform, predator) in query.iter_mut() {
+        transform.translation.x = position.x as f32 * 32.0;
+        transform.translation.y = position.y as f32 * 32.0;
+        transform.scale = Vec3::new(predator.size, predator.size, 1.0);
     }
 }
 
 fn regenerate_food(mut world: ResMut<World>) {
     for row in world.grid.iter_mut() {
         for tile in row.iter_mut() {
-            tile.regenerate_food();
+            if tile.biome == Biome::Water {
+                continue;
+            }
+
+            if tile.food_availabilty < 1500.0 {
+                tile.regenerate_food();
+            }
         }
     }
 }
 
 fn consume_food(mut world: ResMut<World>, mut query: Query<(Entity, &mut Organism, &Position)>) {
-    let mut organisms_by_tile: HashMap<(usize, usize), Vec<(Entity, Mut<Organism>)>> = HashMap::new();
+    let mut organisms_by_tile: HashMap<(usize, usize), Vec<(Entity, Mut<Organism>)>> =
+        HashMap::new();
 
     for (entity, organism, position) in query.iter_mut() {
         organisms_by_tile
@@ -348,14 +402,18 @@ fn consume_food(mut world: ResMut<World>, mut query: Query<(Entity, &mut Organis
             .push((entity, organism));
     }
 
-    for ((x,y), organisms) in organisms_by_tile.iter_mut() {
+    for ((x, y), organisms) in organisms_by_tile.iter_mut() {
         let tile = &mut world.grid[*y][*x];
         if tile.food_availabilty < 0.0 {
             continue;
         }
 
         // Largest organisms eat first (because JUNGLE RULES)
-        organisms.sort_by(|a, b| b.1.size.partial_cmp(&a.1.size).unwrap_or(std::cmp::Ordering::Equal));
+        organisms.sort_by(|a, b| {
+            b.1.size
+                .partial_cmp(&a.1.size)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let mut remaining_food = tile.food_availabilty;
         for (_, organism) in organisms.iter_mut() {
@@ -363,14 +421,14 @@ fn consume_food(mut world: ResMut<World>, mut query: Query<(Entity, &mut Organis
                 break;
             }
 
-            let food_needed = organism.size * 0.2; // larger organisms need more food
+            let food_needed = organism.size * 0.2 * organism.speed; // larger organisms need more food
+
             let food_consumed = food_needed.min(remaining_food);
             remaining_food -= food_consumed;
-
             organism.energy += food_consumed * 2.0; // Convert food to energy
-        }
 
-        tile.food_availabilty = remaining_food;
+            tile.food_availabilty -= food_consumed;
+        }
     }
 }
 
@@ -381,13 +439,13 @@ fn biome_adaptation(mut query: Query<(&mut Organism, &Position)>, world: Res<Wor
 
         match tile.biome {
             Biome::Forest => {
-                organism.energy += 0.1  * tolerance; // forest are abundant in food
+                organism.energy += 0.1 * tolerance; // forest are abundant in food
             }
             Biome::Desert => {
                 organism.energy -= 0.1 / tolerance; // desert are scarce in food
             }
             Biome::Water => {
-                organism.energy -= 0.2 / tolerance; // water is not a good place to be
+                organism.energy -= f32::MAX; // water is not a good place to be
             }
             Biome::Grassland => {
                 organism.energy += 0.05 * tolerance; // grassland are good for grazing
@@ -396,7 +454,7 @@ fn biome_adaptation(mut query: Query<(&mut Organism, &Position)>, world: Res<Wor
     }
 }
 
-fn reproduction(mut commands: Commands, mut query: Query<(&mut Organism, &Position)>) {
+fn reproduction(mut commands: Commands, mut query: Query<(&mut Organism, &Position)>, world: Res<World>) {
     let mut rng = rand::thread_rng();
 
     for (mut organism, position) in query.iter_mut() {
@@ -408,12 +466,16 @@ fn reproduction(mut commands: Commands, mut query: Query<(&mut Organism, &Positi
                 *tolerance *= 1.0 + rng.gen_range(-mutation_factor..mutation_factor);
             }
 
+            let reproduction_threshold = organism.reproduction_threshold
+                * (1.0 + rng.gen_range(-mutation_factor..mutation_factor));
+
+            let reproduction_threshold = reproduction_threshold.clamp(5.0, f32::MAX);
+
             let child = Organism {
                 energy: organism.energy / 2.0,
-                speed: organism.speed * (1.0 + rng.gen_range(-mutation_factor..mutation_factor)),
+                speed: organism.speed * (1.1 + rng.gen_range(-mutation_factor..mutation_factor)),
                 size: organism.size * (1.0 + rng.gen_range(-mutation_factor..mutation_factor)),
-                reproduction_threshold: organism.reproduction_threshold
-                    * (1.0 + rng.gen_range(-mutation_factor..mutation_factor)),
+                reproduction_threshold,
                 biome_tolerance,
             };
 
@@ -421,8 +483,8 @@ fn reproduction(mut commands: Commands, mut query: Query<(&mut Organism, &Positi
             let y_offset = rng.gen_range(-1..=1);
 
             let child_position = Position {
-                x: (position.x as isize + x_offset).clamp(0, 9) as usize,
-                y: (position.y as isize + y_offset).clamp(0, 9) as usize,
+                x: (position.x as isize + x_offset).clamp(0, world.width as isize - 1) as usize,
+                y: (position.y as isize + y_offset).clamp(0, world.height as isize - 1) as usize,
             };
 
             commands.spawn((child, child_position));
@@ -435,7 +497,7 @@ fn reproduction(mut commands: Commands, mut query: Query<(&mut Organism, &Positi
 fn hunting(
     mut commands: Commands,
     mut predator_query: Query<(&mut Predator, &Position)>,
-    prey_query: Query<(Entity, &Position, &Organism), Without<Predator>>
+    prey_query: Query<(Entity, &Position, &Organism), Without<Predator>>,
 ) {
     for (mut predator, predator_position) in predator_query.iter_mut() {
         for (prey_entity, prey_position, prey) in prey_query.iter() {
@@ -445,9 +507,37 @@ fn hunting(
 
                 //println!("Predator ate prey and gained {} energy", energy_gained);
 
-                commands.entity(prey_entity).despawn();
+                commands.entity(prey_entity).try_despawn_recursive();
 
                 break;
+            }
+        }
+    }
+}
+
+fn overcrowding(mut query: Query<(&mut Organism, &Position)>) {
+    let mut organisms_by_tile: HashMap<(usize, usize), Vec<Mut<Organism>>> = HashMap::new();
+
+    for (organism, position) in query.iter_mut() {
+        organisms_by_tile
+            .entry((position.x, position.y))
+            .or_default()
+            .push(organism);
+    }
+
+    for (_, organisms) in organisms_by_tile.iter_mut() {
+        if organisms.len() > 250 {
+            organisms.sort_by(|a, b| {
+                a.energy
+                    .partial_cmp(&b.energy)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            let num_to_remove = organisms.len() - 250;
+            for organism in organisms.iter_mut().take(num_to_remove) {
+                organism.energy = -1.0;
+
+                // println!("Organism died due to overcrowding");
             }
         }
     }
@@ -473,15 +563,12 @@ fn initialize_log_file() {
     let mut file = File::create("organism_data.csv").expect("Failed to create log file");
     writeln!(
         file,
-        "generation,total_organisms,total_energy,avg_speed,avg_size,avg_reproduction_threshold ,total_speed,total_size,total_reproduction_threshold,avg_energy"
+        "generation,total_organisms,total_energy,avg_speed,avg_size,avg_reproduction_threshold,total_speed,total_size,total_reproduction_threshold,avg_energy"
     )
     .expect("Failed to write to log file");
 }
 
-fn log_organism_data(
-    generation: Res<Generation>,
-    query: Query<&Organism>,
-) {
+fn log_organism_data(generation: Res<Generation>, query: Query<&Organism>) {
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -520,16 +607,49 @@ fn log_organism_data(
             total_size,
             total_reproduction_threshold,
             total_energy / total_organisms as f32
-        ).expect("Failed to write to log file");
+        )
+        .expect("Failed to write to log file");
+    }
+}
+
+fn handle_camera_movement(
+    mut query: Query<(&mut Transform, &Camera)>,
+     keys: Res<ButtonInput<KeyCode>>,
+) {
+    for (mut transform, _) in query.iter_mut() {
+        let mut translation = transform.translation;
+
+        if keys.pressed(KeyCode::KeyW) {
+            translation.y += 1.0;
+        }
+        if keys.pressed(KeyCode::KeyS) {
+            translation.y -= 1.0;
+        }
+        if keys.pressed(KeyCode::KeyA) {
+            translation.x -= 1.0;
+        }
+        if keys.pressed(KeyCode::KeyD) {
+            translation.x += 1.0;
+        }
+
+        transform.translation = translation;
     }
 }
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .init_resource::<World>()
+        .insert_resource(World::new(32, 32))
         .insert_resource(Generation(0))
-        .add_systems(Startup, (spawn_world, spawn_organisms, spawn_predators, initialize_log_file))
+        .add_systems(
+            Startup,
+            (
+                spawn_world,
+                spawn_organisms,
+                spawn_predators,
+                initialize_log_file,
+            ),
+        )
         .add_systems(Update, hunting)
         .add_systems(
             Update,
@@ -540,15 +660,19 @@ fn main() {
                 organism_movement,
                 predator_movement,
                 organism_sync,
+                predator_sync,
                 despawn_dead_organisms,
                 despawn_dead_predators,
                 regenerate_food,
                 consume_food,
+                overcrowding,
                 biome_adaptation,
                 reproduction,
                 increment_generation,
                 log_organism_data,
-            ).after(hunting),
+                handle_camera_movement,
+            )
+                .after(hunting),
         )
         .run();
 }
