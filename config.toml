@@ -1,0 +1,45 @@
+# Sample configuration file for the simulation
+width = 100
+height = 100
+initial_organisms = 20
+initial_predators = 2
+headless = false
+log_data = true
+initial_organism_energy = 3.0
+initial_predator_energy = 15.0
+initial_organism_speed = 1.0
+initial_predator_speed = 1.5
+initial_organism_size = 1.2
+initial_predator_size = 1.0
+initial_organism_reproduction_threshold = 5.0
+initial_predator_reproduction_threshold = 16.0
+initial_predator_hunting_efficiency = 1.5
+initial_predator_satiation_threshold = 14.0
+organism_mutability = 0.1
+predator_mutability = 0.05
+overcrowding_threshold_for_organisms = 25
+overcrowding_threshold_for_predators = 10
+
+[forest]
+food_availabilty = 0.2
+max_food_availabilty = 2600.0
+temperature = 20.0
+humidity = 0.6
+
+[desert]
+food_availabilty = 0.01
+max_food_availabilty = 300.0
+temperature = 35.0
+humidity = 0.1
+
+[water]
+food_availabilty = 0.0
+max_food_availabilty = 0.0
+temperature = 15.0
+humidity = 0.9
+
+[grassland]
+food_availabilty = 0.1
+max_food_availabilty = 1500.0
+temperature = 25.0
+humidity = 0.4

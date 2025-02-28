@@ -1,3 +1,5 @@
+use std::error::Error;
+use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -7,6 +9,44 @@ use bevy::utils::hashbrown::HashMap;
 use noise::NoiseFn;
 use noise::Perlin;
 use rand::prelude::*;
+use serde::Deserialize;
+
+#[derive(Deserialize, Debug)]
+struct BiomeDataConfig {
+    // multplier for food regeneration
+    food_availabilty: f32,
+    max_food_availabilty: f32,
+    temperature: f32,
+    humidity: f32,
+}
+
+#[derive(Deserialize, Debug, Resource)]
+pub struct Config {
+    width: usize,
+    height: usize,
+    initial_organisms: usize,
+    initial_predators: usize,
+    headless: bool,
+    log_data: bool,
+    forest: BiomeDataConfig,
+    desert: BiomeDataConfig,
+    water: BiomeDataConfig,
+    grassland: BiomeDataConfig,
+    initial_organism_energy: f32,
+    initial_predator_energy: f32,
+    initial_organism_speed: f32,
+    initial_predator_speed: f32,
+    initial_organism_size: f32,
+    initial_predator_size: f32,
+    initial_organism_reproduction_threshold: f32,
+    initial_predator_reproduction_threshold: f32,
+    initial_predator_hunting_efficiency: f32,
+    initial_predator_satiation_threshold: f32,
+    organism_mutability: f32,
+    predator_mutability: f32,
+    overcrowding_threshold_for_organisms: usize,
+    overcrowding_threshold_for_predators: usize,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Biome {
@@ -25,28 +65,28 @@ pub struct Tile {
 }
 
 impl Tile {
-    pub fn regenerate_food(&mut self) {
+    pub fn regenerate_food(&mut self, config: &Config) {
         match self.biome {
             Biome::Forest => {
-                if self.food_availabilty > 2600.0 {
+                if self.food_availabilty > config.forest.max_food_availabilty {
                     return;
                 }
 
-                self.food_availabilty += 0.2;
+                self.food_availabilty += config.forest.food_availabilty;
             }
             Biome::Desert => {
-                if self.food_availabilty > 300.0 {
+                if self.food_availabilty > config.desert.max_food_availabilty {
                     return;
                 }
 
-                self.food_availabilty += 0.01;
+                self.food_availabilty += config.desert.food_availabilty;
             }
             Biome::Grassland => {
-                if self.food_availabilty > 1500.0 {
+                if self.food_availabilty > config.grassland.max_food_availabilty {
                     return;
                 }
 
-                self.food_availabilty += 0.1;
+                self.food_availabilty += config.grassland.food_availabilty;
             }
             _ => {}
         }
@@ -87,7 +127,7 @@ impl World {
                     biome,
                     temperature: 20.0,
                     humidity: 0.5,
-                    food_availabilty: 1.0,
+                    food_availabilty: rng.gen_range(1.0..100.0),
                 });
             }
         }
@@ -139,13 +179,15 @@ pub struct TileComponent {
 #[derive(Default, Resource)]
 pub struct Generation(pub usize);
 
+const TILE_SIZE_IN_PIXELS: f32 = 32.0;
+
 fn spawn_world(
     mut commands: Commands,
     world: Res<World>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let tile_size = Vec2::new(32.0, 32.0);
+    let tile_size = Vec2::new(TILE_SIZE_IN_PIXELS, TILE_SIZE_IN_PIXELS);
 
     let shape = meshes.add(Rectangle::new(tile_size.x, tile_size.y));
 
@@ -170,7 +212,10 @@ fn spawn_world(
         }
     }
 
-    commands.spawn((Camera2d::default(), Transform::from_xyz(160.0, 160.0, 10.0)));
+    let center_x = world.width as f32 * TILE_SIZE_IN_PIXELS / 2.0;
+    let center_y = world.height as f32 * TILE_SIZE_IN_PIXELS / 2.0;
+
+    commands.spawn((Camera2d::default(), Transform::from_xyz(center_x, center_y, 10.0)));
 }
 
 fn get_biome_tolerance(tile_biome: &Biome) -> HashMap<Biome, f32> {
@@ -190,9 +235,9 @@ fn get_biome_tolerance(tile_biome: &Biome) -> HashMap<Biome, f32> {
     biome_tolerance
 }
 
-fn spawn_organisms(mut commands: Commands, world: Res<World>) {
+fn spawn_organisms(mut commands: Commands, world: Res<World>, config: Res<Config>) {
     let mut rng = rand::thread_rng();
-    let organism_count = 10;
+    let organism_count = config.initial_organisms;
 
     for _ in 0..organism_count {
         let x = rng.gen_range(0..world.width);
@@ -204,10 +249,10 @@ fn spawn_organisms(mut commands: Commands, world: Res<World>) {
 
         commands.spawn((
             Organism {
-                energy: 3.0,
-                speed: 1.0,
-                size: rng.gen_range(0.5..1.5),
-                reproduction_threshold: 5.0,
+                energy: config.initial_organism_energy,
+                speed: config.initial_organism_speed,
+                size: config.initial_organism_size,
+                reproduction_threshold: config.initial_organism_reproduction_threshold,
                 biome_tolerance,
             },
             Position { x, y },
@@ -215,9 +260,9 @@ fn spawn_organisms(mut commands: Commands, world: Res<World>) {
     }
 }
 
-fn spawn_predators(mut commands: Commands, world: Res<World>) {
+fn spawn_predators(mut commands: Commands, world: Res<World>, config: Res<Config>) {
     let mut rng = rand::thread_rng();
-    let predator_count = 1;
+    let predator_count = config.initial_predators;
 
     for _ in 0..predator_count {
         let x = rng.gen_range(0..world.width);
@@ -225,12 +270,12 @@ fn spawn_predators(mut commands: Commands, world: Res<World>) {
 
         commands.spawn((
             Predator {
-                energy: 15.0,
-                speed: 1.5,
-                size: 1.0,
-                reproduction_threshold: 16.0,
-                hunting_efficiency: 1.5,
-                satiation_threshold: 14.0,
+                energy: config.initial_predator_energy,
+                speed: config.initial_predator_speed,
+                size: config.initial_predator_size,
+                reproduction_threshold: config.initial_predator_reproduction_threshold,
+                hunting_efficiency: config.initial_predator_hunting_efficiency,
+                satiation_threshold: config.initial_predator_satiation_threshold,
             },
             Position { x, y },
         ));
@@ -463,10 +508,10 @@ fn predator_sync(mut query: Query<(&Position, &mut Transform, &Predator)>) {
     }
 }
 
-fn regenerate_food(mut world: ResMut<World>) {
+fn regenerate_food(mut world: ResMut<World>, config: Res<Config>) {
     for row in world.grid.iter_mut() {
         for tile in row.iter_mut() {
-            tile.regenerate_food();
+            tile.regenerate_food(&config);
         }
     }
 }
@@ -538,12 +583,13 @@ fn reproduction(
     mut commands: Commands,
     mut query: Query<(&mut Organism, &Position)>,
     world: Res<World>,
+    config: Res<Config>,
 ) {
     let mut rng = rand::thread_rng();
 
     for (mut organism, position) in query.iter_mut() {
         if organism.energy > organism.reproduction_threshold {
-            let mutation_factor = 0.1;
+            let mutation_factor = config.organism_mutability;
 
             let tile_biome = &world.grid[position.y][position.x].biome;
 
@@ -555,10 +601,13 @@ fn reproduction(
             let reproduction_threshold = organism.reproduction_threshold
                 * (1.0 + rng.gen_range(-mutation_factor..mutation_factor));
 
+            let size = organism.size * (1.0 + rng.gen_range(-mutation_factor..mutation_factor));
+            let speed = (organism.speed * (1.1 + rng.gen_range(-mutation_factor..mutation_factor))) - (size * 0.1);
+
             let child = Organism {
                 energy: organism.energy / 2.0,
-                speed: organism.speed * (1.1 + rng.gen_range(-mutation_factor..mutation_factor)),
-                size: organism.size * (1.0 + rng.gen_range(-mutation_factor..mutation_factor)),
+                speed: speed,
+                size: size,
                 reproduction_threshold,
                 biome_tolerance,
             };
@@ -605,17 +654,21 @@ fn predator_reproduction(
     mut commands: Commands,
     mut query: Query<(&mut Predator, &Position)>,
     world: Res<World>,
+    config: Res<Config>,
 ) {
     let mut rng = rand::thread_rng();
 
     for (mut predator, position) in query.iter_mut() {
         if predator.energy > predator.reproduction_threshold {
-            let mutation_factor = 0.05;
+            let mutation_factor = config.predator_mutability;
+
+            let size = predator.size * (1.0 + rng.gen_range(-mutation_factor..mutation_factor));
+            let speed = predator.speed * (1.1 + rng.gen_range(-mutation_factor..mutation_factor)) - (size * 0.1);
 
             let child = Predator {
                 energy: predator.energy / 2.0,
-                speed: predator.speed * (1.1 + rng.gen_range(-mutation_factor..mutation_factor)),
-                size: predator.size * (1.0 + rng.gen_range(-mutation_factor..mutation_factor)),
+                speed: speed,
+                size: size,
                 hunting_efficiency: predator.hunting_efficiency
                     * (1.0 + rng.gen_range(-mutation_factor..mutation_factor)),
                 satiation_threshold: predator.satiation_threshold
@@ -642,9 +695,10 @@ fn predator_reproduction(
 fn overcrowding(
     mut query: Query<(&mut Organism, &Position)>,
     mut predator_query: Query<(&mut Predator, &Position)>,
+    config: Res<Config>,
 ) {
-    let overcrowding_threshold_for_organisms = 25;
-    let overcrowding_threshold_for_predators = 10;
+    let overcrowding_threshold_for_organisms = config.overcrowding_threshold_for_organisms;
+    let overcrowding_threshold_for_predators = config.overcrowding_threshold_for_predators;
 
     let mut organisms_by_tile: HashMap<(usize, usize), Vec<Mut<Organism>>> = HashMap::new();
 
@@ -715,7 +769,11 @@ fn increment_generation(mut generation: ResMut<Generation>) {
     generation.0 += 1;
 }
 
-fn initialize_log_file() {
+fn initialize_log_file(config: Res<Config>) {
+    if !config.log_data {
+        return;
+    }
+
     let mut file = File::create("organism_data.csv").expect("Failed to create log file");
     writeln!(
         file,
@@ -734,7 +792,12 @@ fn log_organism_data(
     generation: Res<Generation>,
     query: Query<&Organism>,
     predator_query: Query<&Predator>,
+    config: Res<Config>,
 ) {
+    if !config.log_data {
+        return;
+    }
+
     let mut organisms_file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -816,6 +879,10 @@ fn log_organism_data(
     }
 }
 
+fn run_if_any_organisms(query: Query<(&Organism, &Predator)>) -> bool {
+    query.iter().count() > 0
+}
+
 fn handle_camera_movement(
     mut query: Query<(&mut Transform, &Camera)>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -840,10 +907,32 @@ fn handle_camera_movement(
     }
 }
 
+fn load_config() -> Result<Config, Box<dyn Error>> {
+    let config = fs::read_to_string("config.toml")?;
+    let config: Config = toml::from_str(&config)?;
+
+    Ok(config)
+}
+
 fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins)
-        .insert_resource(World::new(100, 100))
+    let config = load_config().expect("Failed to load config file");
+
+    println!("{:?}", config);
+
+    let headless = config.headless;
+    let mut app = App::new();
+
+    match headless {
+        true => {
+            app.add_plugins(MinimalPlugins);
+        }
+        false => {
+            app.add_plugins(DefaultPlugins);
+        }
+    }
+
+    app.insert_resource(World::new(config.width, config.height))
+        .insert_resource(config)
         .insert_resource(Generation(0))
         .add_systems(
             Startup,
@@ -876,7 +965,7 @@ fn main() {
                 log_organism_data,
                 handle_camera_movement,
             )
-                .after(hunting),
+                .after(hunting)
         )
         .run();
 }
