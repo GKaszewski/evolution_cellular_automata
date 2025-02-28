@@ -215,7 +215,10 @@ fn spawn_world(
     let center_x = world.width as f32 * TILE_SIZE_IN_PIXELS / 2.0;
     let center_y = world.height as f32 * TILE_SIZE_IN_PIXELS / 2.0;
 
-    commands.spawn((Camera2d::default(), Transform::from_xyz(center_x, center_y, 10.0)));
+    commands.spawn((
+        Camera2d::default(),
+        Transform::from_xyz(center_x, center_y, 10.0),
+    ));
 }
 
 fn get_biome_tolerance(tile_biome: &Biome) -> HashMap<Biome, f32> {
@@ -602,7 +605,8 @@ fn reproduction(
                 * (1.0 + rng.gen_range(-mutation_factor..mutation_factor));
 
             let size = organism.size * (1.0 + rng.gen_range(-mutation_factor..mutation_factor));
-            let speed = (organism.speed * (1.1 + rng.gen_range(-mutation_factor..mutation_factor))) - (size * 0.1);
+            let speed = (organism.speed * (1.1 + rng.gen_range(-mutation_factor..mutation_factor)))
+                - (size * 0.1);
 
             let child = Organism {
                 energy: organism.energy / 2.0,
@@ -663,7 +667,8 @@ fn predator_reproduction(
             let mutation_factor = config.predator_mutability;
 
             let size = predator.size * (1.0 + rng.gen_range(-mutation_factor..mutation_factor));
-            let speed = predator.speed * (1.1 + rng.gen_range(-mutation_factor..mutation_factor)) - (size * 0.1);
+            let speed = predator.speed * (1.1 + rng.gen_range(-mutation_factor..mutation_factor))
+                - (size * 0.1);
 
             let child = Predator {
                 energy: predator.energy / 2.0,
@@ -908,7 +913,15 @@ fn handle_camera_movement(
 }
 
 fn load_config() -> Result<Config, Box<dyn Error>> {
-    let config = fs::read_to_string("config.toml")?;
+    let exe_dir = std::env::current_exe()
+        .expect("Failed to get current executable path")
+        .parent()
+        .expect("Executable must be in a directory")
+        .to_path_buf();
+    
+    let config_path = exe_dir.join("config.toml");
+
+    let config = fs::read_to_string(config_path)?;
     let config: Config = toml::from_str(&config)?;
 
     Ok(config)
@@ -965,7 +978,7 @@ fn main() {
                 log_organism_data,
                 handle_camera_movement,
             )
-                .after(hunting)
+                .after(hunting),
         )
         .run();
 }
