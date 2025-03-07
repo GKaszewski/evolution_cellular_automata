@@ -970,7 +970,7 @@ fn main() {
                 despawn_dead_predators,
                 regenerate_food,
                 consume_food,
-                overcrowding,
+                overcrowding,   
                 biome_adaptation,
                 reproduction,
                 predator_reproduction,
@@ -982,3 +982,8 @@ fn main() {
         )
         .run();
 }
+
+// dodac pozycje do startowe dla organizmow i drapieznikow
+// ro3noleglosc systemow 
+// wersja na przzregladarke
+// limit org
