@@ -44,6 +44,7 @@ pub struct Config {
     predator_mutability: f32,
     overcrowding_threshold_for_organisms: usize,
     overcrowding_threshold_for_predators: usize,
+    max_total_entities: usize, // max number of organisms and predators
     seed: u64,
 }
 
@@ -589,9 +590,19 @@ fn biome_adaptation(mut query: Query<(&mut Organism, &Position)>, world: Res<Wor
 fn reproduction(
     mut commands: Commands,
     mut query: Query<(&mut Organism, &Position)>,
+    predators_query: Query<&Predator>,
     world: Res<World>,
     config: Res<Config>,
 ) {
+    let organisms_count = query.iter().count();
+    let predators_count = predators_query.iter().count();
+    let total_entities = organisms_count + predators_count;
+
+    if total_entities >= config.max_total_entities {
+        println!("Max entities reached, not spawning organism");
+        return;
+    }
+
     let mut rng = StdRng::seed_from_u64(config.seed);
 
     for (mut organism, position) in query.iter_mut() {
@@ -661,9 +672,19 @@ fn hunting(
 fn predator_reproduction(
     mut commands: Commands,
     mut query: Query<(&mut Predator, &Position)>,
+    organisms_query: Query<&Organism>,
     world: Res<World>,
     config: Res<Config>,
 ) {
+    let predators_count = query.iter().count();
+    let organisms_count = organisms_query.iter().count();
+    let total_entities = predators_count + organisms_count;
+
+    if total_entities >= config.max_total_entities {
+        println!("Max entities reached, not spawning predator");
+        return;
+    }
+
     let mut rng = StdRng::seed_from_u64(config.seed);
 
     for (mut predator, position) in query.iter_mut() {
@@ -970,6 +991,7 @@ fn default_config() -> Config {
         overcrowding_threshold_for_organisms: 10,
         overcrowding_threshold_for_predators: 10,
         seed: 0,
+        max_total_entities: 1000,
     }
 }
 
@@ -1039,5 +1061,3 @@ fn main() {
 }
 
 // ro3noleglosc systemow
-// wersja na przzregladarke
-// limit org
