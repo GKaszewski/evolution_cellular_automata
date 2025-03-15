@@ -1,4 +1,6 @@
+#[allow(unused)]
 use std::error::Error;
+use std::fmt::Display;
 use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -10,6 +12,7 @@ use noise::NoiseFn;
 use noise::Perlin;
 use rand::prelude::*;
 use serde::Deserialize;
+use serde_json::json;
 
 #[derive(Deserialize, Debug)]
 struct BiomeDataConfig {
@@ -54,6 +57,17 @@ pub enum Biome {
     Desert,
     Water,
     Grassland,
+}
+
+impl Display for Biome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Biome::Forest => write!(f, "Forest"),
+            Biome::Desert => write!(f, "Desert"),
+            Biome::Water => write!(f, "Water"),
+            Biome::Grassland => write!(f, "Grassland"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -909,6 +923,27 @@ fn log_organism_data(
     }
 }
 
+fn log_world_data(
+    config: Res<Config>,
+    world: Res<World>,
+    generation: Res<Generation>,
+    query: Query<(&Organism, &Position)>,
+    predator_query: Query<(&Predator, &Position)>,
+) {
+    if !config.log_data {
+        return;
+    }
+
+    // This system saves the following data to a json file:
+    // - generation number
+    // - total number of organisms
+    // - total number of predators
+    // - each organim's energy, speed, size, and reproduction threshold and position
+    // - each predator's energy, speed, size, hunting efficiency, and satiation threshold and position
+    // - each tile with number of organisms and predators on it and food availability
+}
+
+#[allow(unused)]
 fn run_if_any_organisms(query: Query<(&Organism, &Predator)>) -> bool {
     query.iter().count() > 0
 }
