@@ -9,6 +9,7 @@ noise = "0.9.0"
 rand = "0.8.5"
 serde = { version = "1.0.218", features = ["derive"] }
 toml = "0.8.20"
+wasm-bindgen = { version = "= 0.2.100" }
 
 [dependencies.bevy]
 version = "0.15.0"
@@ -24,7 +25,10 @@ features = [
     "bevy_core_pipeline",
     "x11",
     "wayland",
+    "webgl2",
+    "webgpu",
 ]
+
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]
@@ -41,7 +45,9 @@ opt-level = 3
 codegen-units = 1
 # Do a second optimization pass over the entire program, including dependencies.
 # Slows compile times, marginal improvements.
-lto = "thin"
+lto = true
+opt-level = 3
+strip = true
 
 # Optimize for size in the wasm-release profile to reduce load times and bandwidth usage on web.
 [profile.wasm-release]

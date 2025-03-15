@@ -931,8 +931,59 @@ fn load_config() -> Result<Config, Box<dyn Error>> {
     Ok(config)
 }
 
-fn main() {
+fn default_config() -> Config {
+    Config {
+        width: 10,
+        height: 10,
+        initial_organisms: 10,
+        initial_predators: 1,
+        headless: false,
+        log_data: false,
+        forest: BiomeDataConfig {
+            food_availabilty: 1.0,
+            max_food_availabilty: 100.0,
+        },
+        desert: BiomeDataConfig {
+            food_availabilty: 1.0,
+            max_food_availabilty: 100.0,
+        },
+        water: BiomeDataConfig {
+            food_availabilty: 1.0,
+            max_food_availabilty: 100.0,
+        },
+        grassland: BiomeDataConfig {
+            food_availabilty: 1.0,
+            max_food_availabilty: 100.0,
+        },
+        initial_organism_energy: 100.0,
+        initial_predator_energy: 100.0,
+        initial_organism_speed: 1.0,
+        initial_predator_speed: 1.0,
+        initial_organism_size: 1.0,
+        initial_predator_size: 1.0,
+        initial_organism_reproduction_threshold: 100.0,
+        initial_predator_reproduction_threshold: 100.0,
+        initial_predator_hunting_efficiency: 1.0,
+        initial_predator_satiation_threshold: 100.0,
+        organism_mutability: 0.1,
+        predator_mutability: 0.1,
+        overcrowding_threshold_for_organisms: 10,
+        overcrowding_threshold_for_predators: 10,
+        seed: 0,
+    }
+}
+
+fn get_config() -> Config {
+    #[cfg(target_arch = "wasm32")]
+    let config = default_config();
+    #[cfg(not(target_arch = "wasm32"))]
     let config = load_config().expect("Failed to load config file");
+
+    config
+}
+
+fn main() {
+    let config = get_config();
 
     println!("{:?}", config);
 
