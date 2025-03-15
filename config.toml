@@ -19,6 +19,7 @@ organism_mutability = 0.1
 predator_mutability = 0.05
 overcrowding_threshold_for_organisms = 25
 overcrowding_threshold_for_predators = 10
+seed = 420692137
 
 [forest]
 food_availabilty = 0.2

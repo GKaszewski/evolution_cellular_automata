@@ -16,8 +16,6 @@ struct BiomeDataConfig {
     // multplier for food regeneration
     food_availabilty: f32,
     max_food_availabilty: f32,
-    temperature: f32,
-    humidity: f32,
 }
 
 #[derive(Deserialize, Debug, Resource)]
@@ -46,6 +44,7 @@ pub struct Config {
     predator_mutability: f32,
     overcrowding_threshold_for_organisms: usize,
     overcrowding_threshold_for_predators: usize,
+    seed: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -101,8 +100,8 @@ pub struct World {
 }
 
 impl World {
-    pub fn new(width: usize, height: usize) -> Self {
-        let mut rng = rand::thread_rng();
+    pub fn new(width: usize, height: usize, random_seed: u64) -> Self {
+        let mut rng = StdRng::seed_from_u64(random_seed);
         let seed = rng.gen::<u32>();
 
         let perlin = Perlin::new(seed);
@@ -142,7 +141,7 @@ impl World {
 
 impl Default for World {
     fn default() -> Self {
-        Self::new(10, 10)
+        Self::new(10, 10, 0)
     }
 }
 
@@ -221,9 +220,9 @@ fn spawn_world(
     ));
 }
 
-fn get_biome_tolerance(tile_biome: &Biome) -> HashMap<Biome, f32> {
+fn get_biome_tolerance(tile_biome: &Biome, seed: u64) -> HashMap<Biome, f32> {
     let mut biome_tolerance = HashMap::new();
-    let mut rng = rand::thread_rng();
+    let mut rng = StdRng::seed_from_u64(seed);
 
     for biome in &[Biome::Forest, Biome::Desert, Biome::Water, Biome::Grassland] {
         let tolerance = if *biome == *tile_biome {
@@ -239,7 +238,7 @@ fn get_biome_tolerance(tile_biome: &Biome) -> HashMap<Biome, f32> {
 }
 
 fn spawn_organisms(mut commands: Commands, world: Res<World>, config: Res<Config>) {
-    let mut rng = rand::thread_rng();
+    let mut rng = StdRng::seed_from_u64(config.seed);
     let organism_count = config.initial_organisms;
 
     for _ in 0..organism_count {
@@ -248,7 +247,7 @@ fn spawn_organisms(mut commands: Commands, world: Res<World>, config: Res<Config
 
         let tile_biome = &world.grid[y][x].biome;
 
-        let biome_tolerance = get_biome_tolerance(tile_biome);
+        let biome_tolerance = get_biome_tolerance(tile_biome, config.seed);
 
         commands.spawn((
             Organism {
@@ -264,7 +263,7 @@ fn spawn_organisms(mut commands: Commands, world: Res<World>, config: Res<Config
 }
 
 fn spawn_predators(mut commands: Commands, world: Res<World>, config: Res<Config>) {
-    let mut rng = rand::thread_rng();
+    let mut rng = StdRng::seed_from_u64(config.seed);
     let predator_count = config.initial_predators;
 
     for _ in 0..predator_count {
@@ -336,7 +335,11 @@ fn render_predators(
     }
 }
 
-fn organism_movement(mut query: Query<(&mut Position, &mut Organism)>, world: Res<World>) {
+fn organism_movement(
+    mut query: Query<(&mut Position, &mut Organism)>,
+    world: Res<World>,
+    config: Res<Config>,
+) {
     let directions: Vec<(isize, isize)> = vec![
         (-1, -1),
         (0, -1),
@@ -348,7 +351,7 @@ fn organism_movement(mut query: Query<(&mut Position, &mut Organism)>, world: Re
         (1, 1),
     ];
 
-    let mut rng = rand::thread_rng();
+    let mut rng = StdRng::seed_from_u64(config.seed);
 
     for (mut position, mut organism) in query.iter_mut() {
         if organism.energy <= 0.0 {
@@ -401,6 +404,7 @@ fn predator_movement(
     mut predator_query: Query<(&mut Position, &mut Predator)>,
     prey_query: Query<(&Position, &Organism), Without<Predator>>,
     world: Res<World>,
+    config: Res<Config>,
 ) {
     let directions: Vec<(isize, isize)> = vec![
         (-1, -1),
@@ -412,7 +416,7 @@ fn predator_movement(
         (0, 1),
         (1, 1),
     ];
-    let mut rng = rand::thread_rng();
+    let mut rng = StdRng::seed_from_u64(config.seed);
 
     for (mut predator_position, mut predator) in predator_query.iter_mut() {
         if predator.energy <= 0.0 {
@@ -588,7 +592,7 @@ fn reproduction(
     world: Res<World>,
     config: Res<Config>,
 ) {
-    let mut rng = rand::thread_rng();
+    let mut rng = StdRng::seed_from_u64(config.seed);
 
     for (mut organism, position) in query.iter_mut() {
         if organism.energy > organism.reproduction_threshold {
@@ -596,7 +600,7 @@ fn reproduction(
 
             let tile_biome = &world.grid[position.y][position.x].biome;
 
-            let mut biome_tolerance = get_biome_tolerance(tile_biome);
+            let mut biome_tolerance = get_biome_tolerance(tile_biome, config.seed);
             for (_, tolerance) in biome_tolerance.iter_mut() {
                 *tolerance *= 1.0 + rng.gen_range(-mutation_factor..mutation_factor);
             }
@@ -660,7 +664,7 @@ fn predator_reproduction(
     world: Res<World>,
     config: Res<Config>,
 ) {
-    let mut rng = rand::thread_rng();
+    let mut rng = StdRng::seed_from_u64(config.seed);
 
     for (mut predator, position) in query.iter_mut() {
         if predator.energy > predator.reproduction_threshold {
@@ -918,7 +922,7 @@ fn load_config() -> Result<Config, Box<dyn Error>> {
         .parent()
         .expect("Executable must be in a directory")
         .to_path_buf();
-    
+
     let config_path = exe_dir.join("config.toml");
 
     let config = fs::read_to_string(config_path)?;
@@ -944,7 +948,7 @@ fn main() {
         }
     }
 
-    app.insert_resource(World::new(config.width, config.height))
+    app.insert_resource(World::new(config.width, config.height, config.seed))
         .insert_resource(config)
         .insert_resource(Generation(0))
         .add_systems(
@@ -970,7 +974,7 @@ fn main() {
                 despawn_dead_predators,
                 regenerate_food,
                 consume_food,
-                overcrowding,   
+                overcrowding,
                 biome_adaptation,
                 reproduction,
                 predator_reproduction,
@@ -983,7 +987,6 @@ fn main() {
         .run();
 }
 
-// dodac pozycje do startowe dla organizmow i drapieznikow
-// ro3noleglosc systemow 
+// ro3noleglosc systemow
 // wersja na przzregladarke
 // limit org
