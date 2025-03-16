@@ -852,7 +852,7 @@ fn initialize_log_file(config: Res<Config>) {
         "generation,total_predators,total_energy,avg_speed,avg_size,avg_reproduction_threshold,total_speed,total_size,total_reproduction_threshold,avg_energy"
     ).expect("Failed to write to log file");
 
-    let mut world_file = File::create("world_data.jsonl").expect("Failed to create log file");
+    let world_file = File::create("world_data.jsonl").expect("Failed to create log file");
     world_file.set_len(0).expect("Failed to clear log file");
 }
 
