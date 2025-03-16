@@ -12,16 +12,16 @@ use noise::NoiseFn;
 use noise::Perlin;
 use rand::prelude::*;
 use serde::Deserialize;
-use serde_json::json;
+use serde::Serialize;
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Serialize, Clone)]
 struct BiomeDataConfig {
     // multplier for food regeneration
     food_availabilty: f32,
     max_food_availabilty: f32,
 }
 
-#[derive(Deserialize, Debug, Resource)]
+#[derive(Deserialize, Debug, Resource, Serialize, Clone)]
 pub struct Config {
     width: usize,
     height: usize,
@@ -51,7 +51,28 @@ pub struct Config {
     seed: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Serialize)]
+struct OrganismWithPosition {
+    organism: Organism,
+    position: Position,
+}
+
+#[derive(Serialize)]
+struct PredatorWithPosition {
+    predator: Predator,
+    position: Position,
+}
+
+#[derive(Serialize)]
+struct ExportData {
+    config: Config,
+    organisms: Vec<OrganismWithPosition>,
+    predators: Vec<PredatorWithPosition>,
+    world: World,
+    generation: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Copy)]
 pub enum Biome {
     Forest,
     Desert,
@@ -70,7 +91,7 @@ impl Display for Biome {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Tile {
     pub biome: Biome,
     pub temperature: f32,
@@ -107,7 +128,7 @@ impl Tile {
     }
 }
 
-#[derive(Debug, Resource)]
+#[derive(Debug, Resource, Serialize, Clone)]
 pub struct World {
     pub width: usize,
     pub height: usize,
@@ -160,7 +181,7 @@ impl Default for World {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Serialize, Clone)]
 pub struct Organism {
     pub energy: f32,
     pub speed: f32,
@@ -169,7 +190,7 @@ pub struct Organism {
     pub biome_tolerance: HashMap<Biome, f32>,
 }
 
-#[derive(Component)]
+#[derive(Component, Serialize, Copy, Clone)]
 pub struct Predator {
     pub energy: f32,
     pub speed: f32,
@@ -179,7 +200,7 @@ pub struct Predator {
     pub satiation_threshold: f32,    // only eat when energy is below this threshold
 }
 
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Serialize, Copy, Clone)]
 pub struct Position {
     pub x: usize,
     pub y: usize,
@@ -190,7 +211,7 @@ pub struct TileComponent {
     pub biome: Biome,
 }
 
-#[derive(Default, Resource)]
+#[derive(Default, Resource, Serialize)]
 pub struct Generation(pub usize);
 
 const TILE_SIZE_IN_PIXELS: f32 = 32.0;
@@ -830,6 +851,9 @@ fn initialize_log_file(config: Res<Config>) {
         predators_file,
         "generation,total_predators,total_energy,avg_speed,avg_size,avg_reproduction_threshold,total_speed,total_size,total_reproduction_threshold,avg_energy"
     ).expect("Failed to write to log file");
+
+    let mut world_file = File::create("world_data.jsonl").expect("Failed to create log file");
+    world_file.set_len(0).expect("Failed to clear log file");
 }
 
 fn log_organism_data(
@@ -927,20 +951,46 @@ fn log_world_data(
     config: Res<Config>,
     world: Res<World>,
     generation: Res<Generation>,
-    query: Query<(&Organism, &Position)>,
-    predator_query: Query<(&Predator, &Position)>,
+    organisms_query: Query<(&Organism, &Position)>,
+    predators_query: Query<(&Predator, &Position)>,
 ) {
     if !config.log_data {
         return;
     }
 
-    // This system saves the following data to a json file:
-    // - generation number
-    // - total number of organisms
-    // - total number of predators
-    // - each organim's energy, speed, size, and reproduction threshold and position
-    // - each predator's energy, speed, size, hunting efficiency, and satiation threshold and position
-    // - each tile with number of organisms and predators on it and food availability
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("world_data.jsonl")
+        .expect("Failed to open log file");
+
+    let organisms_with_position = organisms_query
+        .iter()
+        .map(|(organism, position)| OrganismWithPosition {
+            organism: organism.clone(),
+            position: position.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    let predators_with_position = predators_query
+        .iter()
+        .map(|(predator, position)| PredatorWithPosition {
+            predator: predator.clone(),
+            position: position.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    let export_data = ExportData {
+        generation: generation.0,
+        world: world.clone(),
+        config: config.clone(),
+        organisms: organisms_with_position,
+        predators: predators_with_position,
+    };
+
+    let json = serde_json::to_string(&export_data).expect("Failed to serialize data");
+
+    writeln!(file, "{}", json).expect("Failed to write to log file");
 }
 
 #[allow(unused)]
@@ -987,6 +1037,7 @@ fn load_config() -> Result<Config, Box<dyn Error>> {
     Ok(config)
 }
 
+#[allow(dead_code, unused)]
 fn default_config() -> Config {
     Config {
         width: 10,
@@ -1088,6 +1139,7 @@ fn main() {
                 predator_reproduction,
                 increment_generation,
                 log_organism_data,
+                log_world_data,
                 handle_camera_movement,
             )
                 .after(hunting),

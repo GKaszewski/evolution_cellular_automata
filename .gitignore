@@ -6,3 +6,8 @@
 
 .csv
 .png
+*.png
+*.mp4
+*.csv
+*.jsonl
+*.json
