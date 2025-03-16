@@ -5,7 +5,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import seaborn as sns
-import os
 
 data = pd.read_csv('organism_data.csv')
 
