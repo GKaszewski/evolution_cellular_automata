@@ -326,7 +326,7 @@ fn render_organisms(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let tile_size = Vec2::new(32.0, 32.0);
+    let tile_size = Vec2::new(TILE_SIZE_IN_PIXELS, TILE_SIZE_IN_PIXELS);
     let organism_size = Vec2::new(16.0, 16.0);
 
     let shape = meshes.add(Circle::new((organism_size.x) / 2.0));
@@ -352,7 +352,7 @@ fn render_predators(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let tile_size = Vec2::new(32.0, 32.0);
+    let tile_size = Vec2::new(TILE_SIZE_IN_PIXELS, TILE_SIZE_IN_PIXELS);
     let organism_size = Vec2::new(16.0, 16.0);
 
     let color = Color::srgb(255.0, 0.0, 0.0);
@@ -537,16 +537,16 @@ fn despawn_dead_predators(mut commands: Commands, query: Query<(Entity, &Predato
 
 fn organism_sync(mut query: Query<(&Position, &mut Transform, &Organism)>) {
     for (position, mut transform, organism) in query.iter_mut() {
-        transform.translation.x = position.x as f32 * 32.0;
-        transform.translation.y = position.y as f32 * 32.0;
+        transform.translation.x = position.x as f32 * TILE_SIZE_IN_PIXELS;
+        transform.translation.y = position.y as f32 * TILE_SIZE_IN_PIXELS;
         transform.scale = Vec3::new(organism.size, organism.size, 1.0);
     }
 }
 
 fn predator_sync(mut query: Query<(&Position, &mut Transform, &Predator)>) {
     for (position, mut transform, predator) in query.iter_mut() {
-        transform.translation.x = position.x as f32 * 32.0;
-        transform.translation.y = position.y as f32 * 32.0;
+        transform.translation.x = position.x as f32 * TILE_SIZE_IN_PIXELS;
+        transform.translation.y = position.y as f32 * TILE_SIZE_IN_PIXELS;
         transform.scale = Vec3::new(predator.size, predator.size, 1.0);
     }
 }
