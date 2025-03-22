@@ -97,6 +97,9 @@ with open(jsonl_file, 'r') as f:
         if len(gen_list) % 100 == 0:
             print(f"Processed {len(gen_list)} generations...")
 
+organism_avg_energy_list = [max(x, 0) for x in organism_avg_energy_list]
+predator_avg_energy_list = [max(x, 0) for x in predator_avg_energy_list]
+
 plt.figure(figsize=(10, 5))
 plt.plot(gen_list, organism_counts, label="Organisms", color="lime", linewidth=2)
 plt.plot(gen_list, predator_counts, label="Predators", color="red", linewidth=2)
