@@ -23,6 +23,7 @@ features = [
     "bevy_render",
     "bevy_sprite",
     "bevy_color",
+    "bevy_state",
     "bevy_core_pipeline",
     "x11",
     "wayland",

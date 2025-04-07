@@ -7,12 +7,20 @@ use std::fs::OpenOptions;
 use std::io::Write;
 
 use bevy::prelude::*;
+use bevy::state::app::StatesPlugin;
 use bevy::utils::hashbrown::HashMap;
 use noise::NoiseFn;
 use noise::Perlin;
 use rand::prelude::*;
 use serde::Deserialize;
 use serde::Serialize;
+
+#[derive(States, Debug, Clone, Eq, PartialEq, Hash, Default)]
+enum AppState {
+    #[default]
+    Simulate,
+    Finished,
+}
 
 #[derive(Deserialize, Debug, Serialize, Clone)]
 struct BiomeDataConfig {
@@ -49,6 +57,8 @@ pub struct Config {
     overcrowding_threshold_for_predators: usize,
     max_total_entities: usize, // max number of organisms and predators
     seed: u64,
+    generation_limit: Option<usize>,
+    printing: bool,
 }
 
 #[derive(Serialize)]
@@ -634,7 +644,9 @@ fn reproduction(
     let total_entities = organisms_count + predators_count;
 
     if total_entities >= config.max_total_entities {
-        println!("Max entities reached, not spawning organism");
+        if config.printing {
+            println!("Max entities reached, not spawning organism");
+        }
         return;
     }
 
@@ -716,7 +728,9 @@ fn predator_reproduction(
     let total_entities = predators_count + organisms_count;
 
     if total_entities >= config.max_total_entities {
-        println!("Max entities reached, not spawning predator");
+        if config.printing {
+            println!("Max entities reached, not spawning predator");
+        }
         return;
     }
 
@@ -786,7 +800,9 @@ fn overcrowding(
             for organism in organisms.iter_mut().take(num_to_remove) {
                 organism.energy = -1.0;
 
-                println!("Organism died due to overcrowding");
+                if config.printing {
+                    println!("Organism died due to overcrowding");
+                }
             }
         }
     }
@@ -812,7 +828,9 @@ fn overcrowding(
             for predator in predators.iter_mut().take(num_to_remove) {
                 predator.energy = -1.0;
 
-                println!("Predator died due to overcrowding");
+                if config.printing {
+                    println!("Predator died due to overcrowding");
+                }
             }
         }
     }
@@ -998,6 +1016,24 @@ fn run_if_any_organisms(query: Query<(&Organism, &Predator)>) -> bool {
     query.iter().count() > 0
 }
 
+fn run_for_x_generations(
+    generation: Res<Generation>,
+    config: Res<Config>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
+    let generation_limit = config.generation_limit;
+
+    if let Some(limit) = generation_limit {
+        if config.printing {
+            println!("Generation: {}", generation.0);
+        }
+
+        if generation.0 >= limit {
+            next_state.set(AppState::Finished);
+        }
+    }
+}
+
 fn handle_camera_movement(
     mut query: Query<(&mut Transform, &Camera)>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -1078,6 +1114,8 @@ fn default_config() -> Config {
         overcrowding_threshold_for_predators: 10,
         seed: 0,
         max_total_entities: 1000,
+        generation_limit: None,
+        printing: false,
     }
 }
 
@@ -1090,6 +1128,12 @@ fn get_config() -> Config {
     config
 }
 
+fn exit_app(mut exit: EventWriter<AppExit>, app_state: Res<State<AppState>>) {
+    if app_state.get() == &AppState::Finished {
+        exit.send(AppExit::Success);
+    }
+}
+
 fn main() {
     let config = get_config();
 
@@ -1100,7 +1144,7 @@ fn main() {
 
     match headless {
         true => {
-            app.add_plugins(MinimalPlugins);
+            app.add_plugins((MinimalPlugins, StatesPlugin));
         }
         false => {
             app.add_plugins(DefaultPlugins);
@@ -1110,6 +1154,7 @@ fn main() {
     app.insert_resource(World::new(config.width, config.height, config.seed))
         .insert_resource(config)
         .insert_resource(Generation(0))
+        .init_state::<AppState>()
         .add_systems(
             Startup,
             (
@@ -1119,7 +1164,7 @@ fn main() {
                 initialize_log_file,
             ),
         )
-        .add_systems(Update, hunting)
+        .add_systems(Update, (hunting).run_if(in_state(AppState::Simulate)))
         .add_systems(
             Update,
             (
@@ -1142,8 +1187,11 @@ fn main() {
                 log_world_data,
                 handle_camera_movement,
             )
-                .after(hunting),
+                .after(hunting)
+                .run_if(in_state(AppState::Simulate)),
         )
+        .add_systems(Update, run_for_x_generations.after(increment_generation))
+        .add_systems(Update, exit_app.run_if(in_state(AppState::Finished)))
         .run();
 }
 
