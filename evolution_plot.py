@@ -32,12 +32,79 @@ predator_avg_satiation_threshold_list = []
 
 average_food_per_generation = []
 
+BIOME_STR_TO_ID = {
+    "Forest": 0,
+    "Desert": 1,
+    "Water": 2,
+    "Grassland": 3,
+}
+
+BIOME_COLORS = {
+    0: "green",
+    1: "yellow",
+    2: "blue",
+    3: "brown",
+}
+
+# BiomeMap holds data about world (pos and biome) so later i can display how world looks
+class BiomeMap:
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+        self.grid = np.zeros((height, width), dtype=int)
+
+    def update(self, x, y, biome):
+        self.grid[y, x] = biome
+
+    def get_biome(self, x, y):
+        return self.grid[y, x]
+    
+    def plot(self):
+        """Draw the world with biomes, each cell is a biome and color is based on biome. Cell size is 10x10.
+        Put rectangles in the grid and color them based on biome.
+        """
+        fig, ax = plt.subplots(figsize=(self.width / 10, self.height / 10))
+        for y in range(self.height):
+            for x in range(self.width):
+                biome = self.get_biome(x, y)
+                color = BIOME_COLORS[biome]
+                rect = plt.Rectangle((x, y), 1, 1, color=color)
+                ax.add_patch(rect)
+        ax.set_xlim(0, self.width)
+        ax.set_ylim(0, self.height)
+        ax.set_aspect("equal")
+        plt.title("World Biome Map")
+        plt.xlabel("X Position")
+        plt.ylabel("Y Position")
+        plt.legend(
+            handles=[
+                plt.Line2D([0], [0], marker="o", color="w", label="Forest", markerfacecolor="green"),
+                plt.Line2D([0], [0], marker="o", color="w", label="Desert", markerfacecolor="yellow"),
+                plt.Line2D([0], [0], marker="o", color="w", label="Water", markerfacecolor="blue"),
+                plt.Line2D([0], [0], marker="o", color="w", label="Grassland", markerfacecolor="brown"),
+            ],
+            loc="upper right",
+        )
+        plt.savefig("world_biome_map.png")
+        plt.close()
+    
+world_biome_map = None
+
 with open(jsonl_file, "r") as f:
     for line in f:
         if not line.strip():
             continue
         data = json.loads(line.strip())
         last_snapshot = data
+
+        if not world_biome_map:
+            world_biome_map = BiomeMap(data["config"]["width"], data["config"]["height"])
+            for y in range(data["config"]["height"]):
+                for x in range(data["config"]["width"]):
+                    biome = data["world"]["grid"][y][x]["biome"]
+                    biome_id = BIOME_STR_TO_ID[biome]
+                    world_biome_map.update(x, y, biome_id)
+            world_biome_map.plot()
 
         generation = data["generation"]
         generations.append(generation)
@@ -135,7 +202,7 @@ organism_avg_energy_list = [max(x, 0) for x in organism_avg_energy_list]
 predator_avg_energy_list = [max(x, 0) for x in predator_avg_energy_list]
 
 plt.figure(figsize=(10, 5))
-plt.plot(gen_list, organism_counts, label="Organisms", color="lime", linewidth=2)
+plt.plot(gen_list, organism_counts, label="Preys", color="lime", linewidth=2)
 plt.plot(gen_list, predator_counts, label="Predators", color="red", linewidth=2)
 plt.xlabel("Generation")
 plt.ylabel("Population")
@@ -157,7 +224,7 @@ sns.histplot(
     bins=30,
     color="lime",
     alpha=0.7,
-    label="Organisms",
+    label="Preys",
     kde=True,
 )
 sns.histplot(
@@ -170,7 +237,7 @@ sns.histplot(
 )
 plt.xlabel("Energy Levels")
 plt.ylabel("Frequency")
-plt.title("Energy Distribution of Organisms and Predators")
+plt.title("Energy Distribution of Preys and Predators")
 plt.legend()
 plt.grid(True)
 plt.savefig("energy_distribution.png")
@@ -220,7 +287,7 @@ fig, axes = plt.subplots(3, 1, figsize=(10, 12))
 axes[0].plot(
     gen_list,
     organism_avg_size_list,
-    label="Organisms - Avg Size",
+    label="Preys - Avg Size",
     color="lime",
     linewidth=2,
 )
@@ -239,7 +306,7 @@ axes[0].grid(True)
 axes[1].plot(
     gen_list,
     organism_avg_speed_list,
-    label="Organisms - Avg Speed",
+    label="Preys - Avg Speed",
     color="blue",
     linewidth=2,
 )
@@ -258,7 +325,7 @@ axes[1].grid(True)
 axes[2].plot(
     gen_list,
     organism_avg_energy_list,
-    label="Organisms - Avg Energy",
+    label="Preys - Avg Energy",
     color="yellow",
     linewidth=2,
 )
@@ -298,7 +365,7 @@ plt.figure(figsize=(10, 5))
 plt.plot(
     gen_list,
     organism_avg_reproduction_threshold_list,
-    label="Organisms - Reproduction Threshold",
+    label="Preys - Reproduction Threshold",
     color="lime",
     linewidth=2,
 )
