@@ -55,6 +55,10 @@ pub struct Config {
     predator_mutability: f32,
     overcrowding_threshold_for_organisms: usize,
     overcrowding_threshold_for_predators: usize,
+    max_predator_energy: f32,
+    predator_energy_decay_rate: f32,
+    organism_reproduction_cooldown: f32,
+    predator_reproduction_cooldown: f32,
     max_total_entities: usize, // max number of organisms and predators
     seed: u64,
     generation_limit: Option<usize>,
@@ -80,6 +84,25 @@ struct ExportData {
     predators: Vec<PredatorWithPosition>,
     world: World,
     generation: usize,
+}
+
+#[derive(Serialize)]
+struct GenerationStats {
+    generation: u32,
+    organism_count: usize,
+    predator_count: usize,
+    organism_avg_size: f32,
+    organism_avg_speed: f32,
+    organism_avg_energy: f32,
+    organism_avg_reproduction_threshold: f32,
+    predator_avg_size: f32,
+    predator_avg_speed: f32,
+    predator_avg_energy: f32,
+    predator_avg_reproduction_threshold: f32,
+    predator_avg_hunting_efficiency: f32,
+    predator_avg_satiation_threshold: f32,
+    biome_tally: HashMap<Biome, f32>,
+    average_food: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Copy)]
@@ -197,6 +220,7 @@ pub struct Organism {
     pub speed: f32,
     pub size: f32,
     pub reproduction_threshold: f32, // energy threshold for reproduction
+    pub reproduction_cooldown: f32,
     pub biome_tolerance: HashMap<Biome, f32>,
 }
 
@@ -208,6 +232,7 @@ pub struct Predator {
     pub reproduction_threshold: f32, // energy threshold for reproduction
     pub hunting_efficiency: f32,     // how much energy is consumed per kill
     pub satiation_threshold: f32,    // only eat when energy is below this threshold
+    pub reproduction_cooldown: f32,
 }
 
 #[derive(Component, Debug, Serialize, Copy, Clone)]
@@ -301,6 +326,7 @@ fn spawn_organisms(mut commands: Commands, world: Res<World>, config: Res<Config
                 speed: config.initial_organism_speed,
                 size: config.initial_organism_size,
                 reproduction_threshold: config.initial_organism_reproduction_threshold,
+                reproduction_cooldown: config.organism_reproduction_cooldown,
                 biome_tolerance,
             },
             Position { x, y },
@@ -324,6 +350,7 @@ fn spawn_predators(mut commands: Commands, world: Res<World>, config: Res<Config
                 reproduction_threshold: config.initial_predator_reproduction_threshold,
                 hunting_efficiency: config.initial_predator_hunting_efficiency,
                 satiation_threshold: config.initial_predator_satiation_threshold,
+                reproduction_cooldown: config.predator_reproduction_cooldown,
             },
             Position { x, y },
         ));
@@ -525,7 +552,7 @@ fn predator_movement(
                 .clamp(0, (world.height - 1) as isize) as usize;
         }
 
-        predator.energy -= 0.1 * predator.speed * predator.size;
+        predator.energy -= config.predator_energy_decay_rate * predator.speed * predator.size;
     }
 }
 
@@ -653,6 +680,11 @@ fn reproduction(
     let mut rng = StdRng::seed_from_u64(config.seed);
 
     for (mut organism, position) in query.iter_mut() {
+        if organism.reproduction_cooldown > 0.0 {
+            organism.reproduction_cooldown -= 1.0;
+            continue;
+        }
+
         if organism.energy > organism.reproduction_threshold {
             let mutation_factor = config.organism_mutability;
 
@@ -666,9 +698,17 @@ fn reproduction(
             let reproduction_threshold = organism.reproduction_threshold
                 * (1.0 + rng.gen_range(-mutation_factor..mutation_factor));
 
-            let size = organism.size * (1.0 + rng.gen_range(-mutation_factor..mutation_factor));
-            let speed = (organism.speed * (1.1 + rng.gen_range(-mutation_factor..mutation_factor)))
-                - (size * 0.1);
+            let muated_size =
+                organism.size * (1.0 + rng.gen_range(-mutation_factor..mutation_factor));
+            let size = muated_size.max(0.1); // to avoid negative size
+            let mutated_speed =
+                organism.speed * (1.1 + rng.gen_range(-mutation_factor..mutation_factor));
+            let penalty = size * 0.1;
+            let speed = (mutated_speed - penalty).max(0.1); // to avoid negative speed
+
+            let mutated_cooldown = (config.organism_reproduction_cooldown
+                * (1.0 + rng.gen_range(-mutation_factor..mutation_factor)))
+            .max(1.0); // min 1 tick
 
             let child = Organism {
                 energy: organism.energy / 2.0,
@@ -676,6 +716,7 @@ fn reproduction(
                 size: size,
                 reproduction_threshold,
                 biome_tolerance,
+                reproduction_cooldown: mutated_cooldown,
             };
 
             let x_offset = rng.gen_range(-1..=1);
@@ -689,6 +730,7 @@ fn reproduction(
             commands.spawn((child, child_position));
 
             organism.energy /= 2.0;
+            organism.reproduction_cooldown = config.organism_reproduction_cooldown;
         }
     }
 }
@@ -697,6 +739,7 @@ fn hunting(
     mut commands: Commands,
     mut predator_query: Query<(&mut Predator, &Position)>,
     prey_query: Query<(Entity, &Position, &Organism), Without<Predator>>,
+    config: Res<Config>,
 ) {
     for (mut predator, predator_position) in predator_query.iter_mut() {
         if predator.energy >= predator.satiation_threshold {
@@ -706,7 +749,7 @@ fn hunting(
         for (prey_entity, prey_position, prey) in prey_query.iter() {
             if predator_position.x == prey_position.x && predator_position.y == prey_position.y {
                 let energy_gained = prey.size * predator.hunting_efficiency;
-                predator.energy += energy_gained;
+                predator.energy = (predator.energy + energy_gained).min(config.max_predator_energy);
 
                 commands.entity(prey_entity).try_despawn_recursive();
 
@@ -737,12 +780,26 @@ fn predator_reproduction(
     let mut rng = StdRng::seed_from_u64(config.seed);
 
     for (mut predator, position) in query.iter_mut() {
+        if predator.reproduction_cooldown > 0.0 {
+            predator.reproduction_cooldown -= 1.0;
+            continue;
+        }
+
         if predator.energy > predator.reproduction_threshold {
             let mutation_factor = config.predator_mutability;
 
-            let size = predator.size * (1.0 + rng.gen_range(-mutation_factor..mutation_factor));
-            let speed = predator.speed * (1.1 + rng.gen_range(-mutation_factor..mutation_factor))
-                - (size * 0.1);
+            let muated_size =
+                predator.size * (1.0 + rng.gen_range(-mutation_factor..mutation_factor));
+            let size = muated_size.max(0.1); // to avoid negative size
+
+            let mutated_speed =
+                predator.speed * (1.1 + rng.gen_range(-mutation_factor..mutation_factor));
+            let penalty = size * 0.1;
+            let speed = (mutated_speed - penalty).max(0.1); // to avoid negative speed
+
+            let reproduction_cooldown = (config.predator_reproduction_cooldown
+                * (1.0 + rng.gen_range(-mutation_factor..mutation_factor)))
+            .max(1.0); // min 1 tick
 
             let child = Predator {
                 energy: predator.energy / 2.0,
@@ -754,6 +811,7 @@ fn predator_reproduction(
                     * (1.0 + rng.gen_range(-mutation_factor..mutation_factor)),
                 reproduction_threshold: predator.reproduction_threshold
                     * (1.0 + rng.gen_range(-mutation_factor..mutation_factor)),
+                reproduction_cooldown,
             };
 
             let x_offset = rng.gen_range(-1..=1);
@@ -767,6 +825,7 @@ fn predator_reproduction(
             commands.spawn((child, child_position));
 
             predator.energy /= 2.0;
+            predator.reproduction_cooldown = config.predator_reproduction_cooldown;
         }
     }
 }
@@ -836,18 +895,6 @@ fn overcrowding(
     }
 }
 
-#[allow(dead_code)]
-fn print_energy(query: Query<(Entity, &Organism)>) {
-    for (entity, organism) in query.iter() {
-        println!("Energy: {} for entity {:?}", organism.energy, entity);
-    }
-}
-
-#[allow(dead_code)]
-fn print_how_many_organisms(query: Query<&Organism>) {
-    println!("Number of organisms: {}", query.iter().count());
-}
-
 fn increment_generation(mut generation: ResMut<Generation>) {
     generation.0 += 1;
 }
@@ -857,112 +904,8 @@ fn initialize_log_file(config: Res<Config>) {
         return;
     }
 
-    let mut file = File::create("organism_data.csv").expect("Failed to create log file");
-    writeln!(
-        file,
-        "generation,total_organisms,total_energy,avg_speed,avg_size,avg_reproduction_threshold,total_speed,total_size,total_reproduction_threshold,avg_energy"
-    )
-    .expect("Failed to write to log file");
-
-    let mut predators_file = File::create("predator_data.csv").expect("Failed to create log file");
-    writeln!(
-        predators_file,
-        "generation,total_predators,total_energy,avg_speed,avg_size,avg_reproduction_threshold,total_speed,total_size,total_reproduction_threshold,avg_energy"
-    ).expect("Failed to write to log file");
-
     let world_file = File::create("world_data.jsonl").expect("Failed to create log file");
     world_file.set_len(0).expect("Failed to clear log file");
-}
-
-fn log_organism_data(
-    generation: Res<Generation>,
-    query: Query<&Organism>,
-    predator_query: Query<&Predator>,
-    config: Res<Config>,
-) {
-    if !config.log_data {
-        return;
-    }
-
-    let mut organisms_file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("organism_data.csv")
-        .expect("Failed to open log file");
-    let mut predators_file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("predator_data.csv")
-        .expect("Failed to open log file");
-
-    let mut total_organisms = 0;
-    let mut total_energy = 0.0;
-    let mut total_reproduction_threshold = 0.0;
-    let mut total_speed = 0.0;
-    let mut total_size = 0.0;
-
-    for organism in query.iter() {
-        total_organisms += 1;
-        total_energy += organism.energy;
-        total_reproduction_threshold += organism.reproduction_threshold;
-        total_speed += organism.speed;
-        total_size += organism.size;
-    }
-
-    if total_organisms > 0 {
-        let avg_speed = total_speed / total_organisms as f32;
-        let avg_size = total_size / total_organisms as f32;
-        let avg_reproduction_threshold = total_reproduction_threshold / total_organisms as f32;
-
-        writeln!(
-            organisms_file,
-            "{},{},{},{},{},{},{},{},{},{}",
-            generation.0,
-            total_organisms,
-            total_energy,
-            avg_speed,
-            avg_size,
-            avg_reproduction_threshold,
-            total_speed,
-            total_size,
-            total_reproduction_threshold,
-            total_energy / total_organisms as f32
-        )
-        .expect("Failed to write to log file");
-    }
-
-    let mut total_predators = 0;
-    let mut total_predator_energy = 0.0;
-    let mut total_predator_speed = 0.0;
-    let mut total_predator_size = 0.0;
-
-    for predator in predator_query.iter() {
-        total_predators += 1;
-        total_predator_energy += predator.energy;
-        total_predator_speed += predator.speed;
-        total_predator_size += predator.size;
-    }
-
-    if total_predators > 0 {
-        let avg_predator_speed = total_predator_speed / total_predators as f32;
-        let avg_predator_size = total_predator_size / total_predators as f32;
-
-        writeln!(
-            predators_file,
-            "{},{},{},{},{},{},{},{},{},{}",
-            generation.0,
-            total_predators,
-            total_predator_energy,
-            avg_predator_speed,
-            avg_predator_size,
-            0.0,
-            total_predator_speed,
-            total_predator_size,
-            0.0,
-            total_predator_energy / total_predators as f32
-        )
-        .expect("Failed to write to log file");
-    }
 }
 
 fn log_world_data(
@@ -1011,6 +954,95 @@ fn log_world_data(
     writeln!(file, "{}", json).expect("Failed to write to log file");
 }
 
+fn log_preprocessed_world_data(
+    config: Res<Config>,
+    world: Res<World>,
+    generation: Res<Generation>,
+    organisms_query: Query<(&Organism, &Position)>,
+    predators_query: Query<(&Predator, &Position)>,
+) {
+    if !config.log_data {
+        return;
+    }
+
+    let mut biome_tally = HashMap::new();
+    let mut organism_count = 0;
+    let mut predator_count = 0;
+
+    let mut organism_size_sum = 0.0;
+    let mut organism_speed_sum = 0.0;
+    let mut organism_energy_sum = 0.0;
+    let mut organism_repro_sum = 0.0;
+
+    for (organism, _) in organisms_query.iter() {
+        organism_count += 1;
+        organism_size_sum += organism.size;
+        organism_speed_sum += organism.speed;
+        organism_energy_sum += organism.energy;
+        organism_repro_sum += organism.reproduction_threshold;
+
+        for (biome, tolerance) in &organism.biome_tolerance {
+            *biome_tally.entry(biome.clone()).or_insert(0.0) += tolerance;
+        }
+    }
+
+    let mut predator_size_sum = 0.0;
+    let mut predator_speed_sum = 0.0;
+    let mut predator_energy_sum = 0.0;
+    let mut predator_repro_sum = 0.0;
+    let mut predator_hunting_sum = 0.0;
+    let mut predator_satiation_sum = 0.0;
+
+    for (predator, _) in predators_query.iter() {
+        predator_count += 1;
+        predator_size_sum += predator.size;
+        predator_speed_sum += predator.speed;
+        predator_energy_sum += predator.energy;
+        predator_repro_sum += predator.reproduction_threshold;
+        predator_hunting_sum += predator.hunting_efficiency;
+        predator_satiation_sum += predator.satiation_threshold;
+    }
+
+    let total_tiles = (config.width * config.height) as f32;
+    let total_food: f32 = world
+        .grid
+        .iter()
+        .flat_map(|row| row.iter())
+        .map(|tile| tile.food_availabilty)
+        .sum();
+
+    let summary = GenerationStats {
+        generation: generation.0 as u32,
+        organism_count,
+        predator_count,
+        organism_avg_size: organism_size_sum / organism_count.max(1) as f32,
+        organism_avg_speed: organism_speed_sum / organism_count.max(1) as f32,
+        organism_avg_energy: organism_energy_sum / organism_count.max(1) as f32,
+        organism_avg_reproduction_threshold: organism_repro_sum / organism_count.max(1) as f32,
+        predator_avg_size: predator_size_sum / predator_count.max(1) as f32,
+        predator_avg_speed: predator_speed_sum / predator_count.max(1) as f32,
+        predator_avg_energy: predator_energy_sum / predator_count.max(1) as f32,
+        predator_avg_reproduction_threshold: predator_repro_sum / predator_count.max(1) as f32,
+        predator_avg_hunting_efficiency: predator_hunting_sum / predator_count.max(1) as f32,
+        predator_avg_satiation_threshold: predator_satiation_sum / predator_count.max(1) as f32,
+        biome_tally,
+        average_food: total_food / total_tiles,
+    };
+
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("summary_data.jsonl")
+        .expect("Failed to open summary log file");
+
+    writeln!(
+        file,
+        "{}",
+        serde_json::to_string(&summary).expect("Failed to serialize summary data")
+    )
+    .expect("Failed to write summary data to log file");
+}
+
 #[allow(unused)]
 fn run_if_any_organisms(query: Query<(&Organism, &Predator)>) -> bool {
     query.iter().count() > 0
@@ -1030,6 +1062,35 @@ fn run_for_x_generations(
 
         if generation.0 >= limit {
             next_state.set(AppState::Finished);
+        }
+    }
+}
+
+fn kill_over_limit_organisms(
+    mut commands: Commands,
+    organisms_query: Query<(Entity, &Organism)>,
+    predators_query: Query<(Entity, &Predator)>,
+    config: Res<Config>,
+) {
+    let limit = config.max_total_entities;
+    let total_entities = organisms_query.iter().count() + predators_query.iter().count();
+    let over_limit = total_entities as i32 - limit as i32;
+    if over_limit > 0 {
+        let mut rng = StdRng::seed_from_u64(config.seed);
+        let mut entities_to_kill = Vec::new();
+
+        for (entity, _) in organisms_query.iter() {
+            entities_to_kill.push(entity);
+        }
+
+        for (entity, _) in predators_query.iter() {
+            entities_to_kill.push(entity);
+        }
+
+        entities_to_kill.shuffle(&mut rng);
+
+        for entity in entities_to_kill.iter().take(over_limit as usize) {
+            commands.entity(*entity).despawn_recursive();
         }
     }
 }
@@ -1112,6 +1173,10 @@ fn default_config() -> Config {
         predator_mutability: 0.1,
         overcrowding_threshold_for_organisms: 10,
         overcrowding_threshold_for_predators: 10,
+        predator_energy_decay_rate: 0.5,
+        max_predator_energy: 1500.0,
+        organism_reproduction_cooldown: 0.5,
+        predator_reproduction_cooldown: 0.5,
         seed: 0,
         max_total_entities: 1000,
         generation_limit: None,
@@ -1131,6 +1196,28 @@ fn get_config() -> Config {
 fn exit_app(mut exit: EventWriter<AppExit>, app_state: Res<State<AppState>>) {
     if app_state.get() == &AppState::Finished {
         exit.send(AppExit::Success);
+    }
+}
+
+fn print_simulation_progress(
+    generation: Res<Generation>,
+    config: Res<Config>,
+    app_state: Res<State<AppState>>,
+    organisms_query: Query<&Organism>,
+    predators_query: Query<&Predator>,
+) {
+    if app_state.get() == &AppState::Simulate {
+        let organisms_count = organisms_query.iter().count();
+        let predators_count = predators_query.iter().count();
+        let total_entities = organisms_count + predators_count;
+        println!(
+            "Generation: {} / {}, Total entities: {}, Organisms: {}, Predators: {}",
+            generation.0,
+            config.generation_limit.unwrap_or(0),
+            total_entities,
+            organisms_count,
+            predators_count
+        );
     }
 }
 
@@ -1172,10 +1259,10 @@ fn main() {
                 render_predators,
                 organism_movement,
                 predator_movement,
-                organism_sync,
-                predator_sync,
                 despawn_dead_organisms,
                 despawn_dead_predators,
+                organism_sync,
+                predator_sync,
                 regenerate_food,
                 consume_food,
                 overcrowding,
@@ -1183,14 +1270,33 @@ fn main() {
                 reproduction,
                 predator_reproduction,
                 increment_generation,
-                log_organism_data,
                 log_world_data,
                 handle_camera_movement,
             )
                 .after(hunting)
                 .run_if(in_state(AppState::Simulate)),
         )
+        // .add_systems(
+        //     Update,
+        //     kill_over_limit_organisms
+        //         .after(reproduction)
+        //         .after(predator_reproduction)
+        //         .after(overcrowding),
+        // )
+        // .add_systems(
+        //     Update,
+        //     log_preprocessed_world_data
+        //         .after(despawn_dead_organisms)
+        //         .after(despawn_dead_predators)
+        //         .run_if(in_state(AppState::Simulate)),
+        // )
         .add_systems(Update, run_for_x_generations.after(increment_generation))
+        .add_systems(
+            Update,
+            print_simulation_progress
+                .run_if(in_state(AppState::Simulate))
+                .after(kill_over_limit_organisms),
+        )
         .add_systems(Update, exit_app.run_if(in_state(AppState::Finished)))
         .run();
 }

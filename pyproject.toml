@@ -6,8 +6,9 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "pandas",
- "matplotlib",
- "seaborn",
- "pyqt6",
- "scipy>=1.15.2",
+    "matplotlib",
+    "seaborn",
+    "pyqt6",
+    "scipy>=1.15.2",
+    "pysimdjson>=6.0.2",
 ]

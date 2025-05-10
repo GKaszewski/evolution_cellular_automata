@@ -20,7 +20,7 @@ predator_mutability = 0.05
 overcrowding_threshold_for_organisms = 25
 overcrowding_threshold_for_predators = 10
 seed = 420692137
-max_total_entities = 10000
+max_total_entities = 10
 generation_limit = 1000
 printing = true
 
