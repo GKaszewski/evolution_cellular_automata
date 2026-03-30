@@ -191,7 +191,7 @@ with open(jsonl_file, "r") as f:
             biome_counts[biome].append(biome_tally[biome])
 
         total_food = sum(
-            tile["food_availabilty"] for row in data["world"]["grid"] for tile in row
+            tile["food_availability"] for row in data["world"]["grid"] for tile in row
         )
         average_food_per_generation.append(total_food / (width * height))
 
@@ -271,7 +271,7 @@ plt.savefig("food_trends.png")
 
 food_grid = np.array(
     [
-        [tile["food_availabilty"] for tile in row]
+        [tile["food_availability"] for tile in row]
         for row in last_snapshot["world"]["grid"]
     ]
 )
