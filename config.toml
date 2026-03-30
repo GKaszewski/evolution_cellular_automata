@@ -20,30 +20,34 @@ predator_mutability = 0.05
 overcrowding_threshold_for_organisms = 25
 overcrowding_threshold_for_predators = 10
 seed = 420692137
+max_predator_energy = 1500.0
+predator_energy_decay_rate = 0.5
+organism_reproduction_cooldown = 0.5
+predator_reproduction_cooldown = 0.5
 max_total_entities = 10
 generation_limit = 1000
 printing = true
 
 [forest]
-food_availabilty = 0.2
-max_food_availabilty = 2600.0
+food_availability = 0.2
+max_food_availability = 2600.0
 temperature = 20.0
 humidity = 0.6
 
 [desert]
-food_availabilty = 0.01
-max_food_availabilty = 300.0
+food_availability = 0.01
+max_food_availability = 300.0
 temperature = 35.0
 humidity = 0.1
 
 [water]
-food_availabilty = 0.0
-max_food_availabilty = 0.0
+food_availability = 0.0
+max_food_availability = 0.0
 temperature = 15.0
 humidity = 0.9
 
 [grassland]
-food_availabilty = 0.1
-max_food_availabilty = 1500.0
+food_availability = 0.1
+max_food_availability = 1500.0
 temperature = 25.0
 humidity = 0.4
